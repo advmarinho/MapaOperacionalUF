@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sonova – Mapa de Lojas (Excel/CSV + Correção)</title>
+
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- SheetJS (Excel) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-title">Sonova – Mapa de Lojas</div>
+      <div class="brand-sub">Carregue Excel ou CSV enriquecido. Corrija coordenadas quando houver erro de localização.</div>
+    </div>
+
+    <div class="topbar-actions">
+      <button id="btnLimparMapa" type="button" class="btn btn-ghost">Limpar mapa</button>
+
+      <button id="btnImportCSV" type="button" class="btn btn-ghost">Importar base enriquecida (CSV)</button>
+      <input type="file" id="inputImportCSV" accept=".csv" style="display:none;" />
+
+      <button id="btnResetCache" type="button" class="btn btn-ghost">Limpar cache de geocoding</button>
+
+      <button id="btnImportCache" type="button" class="btn btn-ghost">Importar cache (JSON)</button>
+      <input type="file" id="inputImportCache" accept=".json" style="display:none;" />
+
+      <button id="btnExportCache" type="button" class="btn btn-ghost">Exportar cache (JSON)</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel">
+      <section class="card">
+        <div class="card-title">1) Carregar base (Excel)</div>
+        <div class="card-body">
+          <div class="field">
+            <label class="label" for="fileExcel">Arquivo .xlsx / .xls</label>
+            <input id="fileExcel" type="file" accept=".xlsx,.xls" />
+            <div class="hint">
+              A base pode ter colunas como CEP, Endereço, UF, Número, Bairro e Nome/ID. O sistema tenta detectar automaticamente.
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="selColNome">Coluna Nome/ID</label>
+              <select id="selColNome" disabled></select>
+            </div>
+            <div class="field">
+              <label class="label" for="selColCEP">Coluna CEP</label>
+              <select id="selColCEP" disabled></select>
+            </div>
+            <div class="field">
+              <label class="label" for="selColUF">Coluna UF</label>
+              <select id="selColUF" disabled></select>
+            </div>
+            <div class="field">
+              <label class="label" for="selColEndereco">Coluna Endereço</label>
+              <select id="selColEndereco" disabled></select>
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="selColNumero">Coluna Número</label>
+              <select id="selColNumero" disabled></select>
+            </div>
+            <div class="field">
+              <label class="label" for="selColBairro">Coluna Bairro</label>
+              <select id="selColBairro" disabled></select>
+            </div>
+            <div class="field">
+              <label class="label" for="selColComplemento">Coluna Complemento</label>
+              <select id="selColComplemento" disabled></select>
+            </div>
+            <div class="field">
+              <label class="label" for="selColHC">Coluna HC</label>
+              <select id="selColHC" disabled></select>
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="inpFiltro">Filtro (nome/CEP/UF)</label>
+              <input id="inpFiltro" type="text" placeholder="Ex: RJ, 22631-000, Copacabana" disabled />
+            </div>
+            <div class="field">
+              <label class="label" for="inpGeocoderBase">Geocoder (Nominatim)</label>
+              <input id="inpGeocoderBase" type="text"
+                value="https://nominatim.openstreetmap.org/search"
+                disabled />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="btnMapear" type="button" class="btn btn-primary" disabled>Carregar e mapear</button>
+            <button id="btnExportCSV" type="button" class="btn btn-secondary" disabled>Exportar base enriquecida (CSV)</button>
+          </div>
+
+          <div class="progress-wrap">
+            <div class="progress-head">
+              <div id="lblStatus" class="status">Aguardando arquivo</div>
+              <div id="lblContagem" class="status-muted"></div>
+            </div>
+            <div class="progress-bar">
+              <div id="progress" class="progress"></div>
+            </div>
+            <div class="hint">
+              Clique em um marcador para definir a loja de origem. Depois, passe o mouse em outra loja para ver a distância.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">2) Lista (clique para focar no mapa)</div>
+        <div class="card-body">
+          <div id="lista" class="list"></div>
+          <div class="hint">
+            A lista mostra até 400 registros após aplicar filtro. Use o botão "Corrigir" para ajustar endereço/coordenadas.
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="cardEditor">
+        <div class="card-title">3) Correção de localização (manual)</div>
+        <div class="card-body">
+          <div class="hint" id="editHint">
+            Abra a correção por um item da lista (botão Corrigir) ou pelo popup do marcador. Você pode testar o geocoding ou fixar a posição clicando no mapa.
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="editNome">Loja</label>
+              <input id="editNome" type="text" readonly />
+            </div>
+            <div class="field">
+              <label class="label" for="editRowId">RowId</label>
+              <input id="editRowId" type="text" readonly />
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="editCEP">CEP</label>
+              <input id="editCEP" type="text" placeholder="00000-000" />
+            </div>
+            <div class="field">
+              <label class="label" for="editUF">UF</label>
+              <input id="editUF" type="text" placeholder="SP" />
+            </div>
+            <div class="field">
+              <label class="label" for="editCidade">Cidade</label>
+              <input id="editCidade" type="text" placeholder="São Paulo" />
+            </div>
+            <div class="field">
+              <label class="label" for="editBairro">Bairro</label>
+              <input id="editBairro" type="text" placeholder="Centro" />
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="editEndereco">Endereço</label>
+              <input id="editEndereco" type="text" placeholder="Rua Exemplo" />
+            </div>
+            <div class="field">
+              <label class="label" for="editNumero">Número</label>
+              <input id="editNumero" type="text" placeholder="123" />
+            </div>
+            <div class="field">
+              <label class="label" for="editComplemento">Complemento</label>
+              <input id="editComplemento" type="text" placeholder="Sala 10" />
+            </div>
+            <div class="field">
+              <label class="label" for="editHC">HC</label>
+              <input id="editHC" type="text" placeholder="0" />
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="editLat">Latitude</label>
+              <input id="editLat" type="text" placeholder="-23.5505" />
+            </div>
+            <div class="field">
+              <label class="label" for="editLon">Longitude</label>
+              <input id="editLon" type="text" placeholder="-46.6333" />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="btnEditTest" type="button" class="btn btn-secondary">Testar geocoding</button>
+            <button id="btnEditPickMap" type="button" class="btn btn-secondary">Definir no mapa (clique)</button>
+            <button id="btnEditSalvar" type="button" class="btn btn-primary">Salvar correção</button>
+            <button id="btnEditCancelar" type="button" class="btn btn-ghost">Cancelar</button>
+          </div>
+
+          <div class="hint" id="editStatus"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">Observações de uso</div>
+        <div class="card-body small">
+          <ul class="bullets">
+            <li>O geocoding pode levar alguns minutos na primeira vez. Depois, o cache acelera bastante.</li>
+            <li>Se o endereço estiver correto, mas o ponto cair no lugar errado, use a correção manual clicando no mapa e salve. Isso fica gravado no cache do navegador.</li>
+            <li>Use "Exportar cache" e "Importar cache" para reaproveitar as correções em outro computador.</li>
+          </ul>
+        </div>
+      </section>
+    </aside>
+
+    <section class="map-wrap">
+      <div id="map" class="map"></div>
+      <div class="map-footer">
+        <div id="originInfo" class="origin">Origem: não definida</div>
+        <div id="hoverInfo" class="hover">Passe o mouse em um marcador</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
